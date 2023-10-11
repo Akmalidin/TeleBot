@@ -1,3 +1,4 @@
-__pycache__,
+_pycache_,
 venv,
-config.py
+config.py,
+main2.py,

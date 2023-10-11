@@ -1,63 +1,113 @@
-from aiogram import Bot, Dispatcher, types, executor
+from aiogram import Dispatcher, executor, types, Bot
+from aiogram.dispatcher import FSMContext
+from aiogram.contrib.middlewares.logging import LoggingMiddleware
+from aiogram.types import ParseMode
+from aiogram.dispatcher.filters import Command
+from aiogram.dispatcher.filters import Text
+from aiogram.dispatcher.filters.state import State, StatesGroup
+from aiogram.contrib.fsm_storage.memory import MemoryStorage
+import sqlite3
 from config import token
 from logging import basicConfig, INFO
+from datetime import datetime
+conn = sqlite3.connect('users.db')
+cursor = conn.cursor()
+cursor.execute("""CREATE TABLE IF NOT EXISTS users(
+        id_user INTEGER PRIMARY KEY,
+        first_name TEXT,
+        last_name TEXT,
+        username TEXT,
+        phonenumber INTEGER
+    )""")
 
+cursor.execute("""CREATE TABLE IF NOT EXISTS orders(id_user INTEGER, title TEXT, address_destination TEXT, date_time_order TEXT)""")
+
+cursor.execute("""CREATE TABLE IF NOT EXISTS address (id_user, address_latitude, address_longitude)""")
+storage = MemoryStorage()
 bot = Bot(token=token)
-dp = Dispatcher(bot)
+dp = Dispatcher(bot, storage=storage)
 basicConfig(level=INFO)
 
-vision_keyboard = [
-    types.KeyboardButton("О нас"),
-    types.KeyboardButton("Объекты"),
-    types.KeyboardButton("Контакты"),
-]
-objects_finished = [
-    types.KeyboardButton("Завершенные объекты"),
-    types.KeyboardButton("Строящиеся объекты"),
-    types.KeyboardButton("Назад")
-]
-objects_btn = types.ReplyKeyboardMarkup(resize_keyboard=True).add(*objects_finished)
-vision_button = types.ReplyKeyboardMarkup(resize_keyboard=True).add(*vision_keyboard)
-@dp.message_handler(commands="start")
-async def start(message:types.Message):
-    await message.answer(f"Здравствуйте {message.from_user.full_name}\nДобро пожаловать в VisionGroup\nЧто вы хотели узнать?", reply_markup=vision_button)
-@dp.message_handler(text="start")
-async def start(message:types.Message):
-    await message.answer(f"Здравствуйте {message.from_user.full_name}\nДобро пожаловать в VisionGroup\nЧто вы хотели узнать?", reply_markup=vision_button)
-@dp.message_handler(text="О нас")
-async def about(message:types.Message):
-    await message.answer("""
-                                                    <b><i>СТРОИТЕЛЬНАЯ КОМПАНИЯ</i></b>
+start_keyboard = [
+    types.KeyboardButton('Отправить номер', request_contact=True),
+    types.KeyboardButton('Отправить локацию', request_location=True),
+    types.KeyboardButton('Заказать еду')
+    ]
+start_keyboards = types.ReplyKeyboardMarkup(resize_keyboard=True).add(*start_keyboard)
 
-                            <b>ОсОО «Визион Групп»</b>
-Мы - развивающаяся компания, которая предлагает своим клиентам широкий выбор квартир в объектах расположенных во всех наиболее привлекательных районах городов Ош и Джалал-Абад. \nУ нас максимально выгодные условия, гибкий (индивидуальный) подход при реализации жилой и коммерческой недвижимости. Мы занимаем лидирующие позиции по количеству объектов по югу Кыргызстана. \nНаша миссия: Мы обеспечиваем население удобным жильем для всей семьи, проявляя лояльность и индивидуальный подход и обеспечивая высокий уровень обслуживания.\n\n Мы обеспечиваем бизнес подходящим коммерческим помещением, используя современные решения и опыт профессионалов своего дела.
-                         """,parse_mode="HTML")
+# Обрабатываем команду start
+@dp.message_handler(commands='start')
+async def start(message: types.Message):
+    await message.reply(f"Привет! {message.from_user.full_name} Нажмите кнопку ниже, чтобы заказать еду.", reply_markup=start_keyboards)
 
-@dp.message_handler(text="Объекты")
-async def objects(message:types.Message):
-    await message.answer("Выберите из меню объекты которые хотите увидеть!", reply_markup=objects_btn)
+# Обрабатываем номера телефона, полученного от пользователя
+@dp.message_handler(content_types=types.ContentType.CONTACT)
+async def on_contact(message: types.Message):
+    first_name = message.from_user.first_name
+    last_name = message.from_user.last_name
+    username = message.from_user.username
+    phone_number = message.contact.phone_number
+    id_user = message.from_user.id
+    cursor.execute('SELECT id_user FROM users WHERE id_user = ?', (id_user,))
+    regis_user = cursor.fetchone()
+    if regis_user:
+        await message.reply("Вы уже зарегистрированы в нашей базе данных.")
+    else:
+        cursor.execute('INSERT INTO users (id_user, first_name, last_name, username, phonenumber) VALUES (?, ?, ?, ?, ?)', (id_user, first_name, last_name, username, phone_number))
+        conn.commit()
+        await message.reply(f"Спасибо за предоставленный номер телефона: {phone_number}", reply_markup=start_keyboards)
 
-@dp.message_handler(text="Завершенные объекты")
-async def finished_objects(message:types.Message):
-    await message.answer_photo("https://sp-ao.shortpixel.ai/client/to_webp,q_glossy,ret_img,w_1260,h_708/https://vg-stroy.com/wp-content/uploads/2022/01/dji_0392-scaled-1.jpeg")
-    await message.answer("ЖК «Малина-Лайф»\n г.Ош, ул Монуева 19")
-    await message.answer_photo("https://sp-ao.shortpixel.ai/client/to_webp,q_glossy,ret_img,w_873,h_1280/https://vg-stroy.com/wp-content/uploads/2022/01/2022-02-09-14.22.41.jpg")
-    await message.answer("ЖК «Малина-Лайф»\n г.Ош, ул Монуева 19")
-@dp.message_handler(text="Строящиеся объекты")
-async def notfinished_objects(message:types.Message):
-    await message.answer_photo("https://sp-ao.shortpixel.ai/client/to_webp,q_glossy,ret_img,w_1260,h_708/https://vg-stroy.com/wp-content/uploads/2022/01/dji_0392-scaled-1.jpeg")
-    await message.answer("ЖК «Малина-Лайф»\n г.Ош, ул Монуева 19")
-    await message.answer_photo("https://sp-ao.shortpixel.ai/client/to_webp,q_glossy,ret_img,w_873,h_1280/https://vg-stroy.com/wp-content/uploads/2022/01/2022-02-09-14.22.41.jpg")
-    await message.answer("ЖК «Малина-Лайф»\n г.Ош, ул Монуева 19")
-@dp.message_handler(text="Назад")
-async def prev(message:types.Message):
-    await start(message)
+# Команда для запроса локации
+@dp.message_handler(text='Отправить локацию')
+async def request_location(message: types.Message):
+    await message.reply("Пожалуйста, отправьте вашу локацию, нажав на кнопку 'Отправить локацию' ниже.", reply_markup=start_keyboards)
 
-@dp.message_handler(text="Контакты")
-async def contacts(message:types.Message):
-    await message.answer("Телефонные номера: \n+996 709 620088\n+996 772 620088\n+996 550 620088")
+# Обрабатываем локацию
+@dp.message_handler(content_types=types.ContentType.LOCATION)
+async def on_location(message: types.Message):
+    id_user = message.from_user.id
+    address_latitude = message.location.latitude
+    address_longitude = message.location.longitude
+    cursor.execute('''INSERT INTO address (id_user, address_latitude, address_longitude) VALUES (?, ?, ?)''', (id_user, address_latitude, address_longitude))
+    conn.commit()
+    await message.reply("Ваша локация успешно сохранена в базе данных.", reply_markup=start_keyboards)
 
-@dp.message_handler()
-async def text(message:types.Message):
-    await message.answer("Я вас не понял введите команду /start")
+# Добавляем новое состояние для ожидания названия блюда
+class OrderState(StatesGroup):
+    title = State()
+    delivery_address = State()
+
+# ...
+
+# Обработчик команды "Заказать еду"
+@dp.message_handler(text='Заказать еду')
+async def request_order_info(message: types.Message):
+    markup = types.ReplyKeyboardRemove()
+    await message.reply("Чтобы заказать еду, введите название блюда:", reply_markup=markup)
+    await OrderState.title.set()
+# Обработка названия блюда
+@dp.message_handler(state=OrderState.title)
+async def process_food_name(message: types.Message, state: FSMContext):
+    id_user = message.from_user.id
+    title = message.text
+    markup = types.ReplyKeyboardRemove()
+    message = await message.reply(f"Вы заказали {title}. Теперь введите адрес доставки:", reply_markup=markup)
+    async with state.proxy() as data:
+        data['title'] = title
+    await OrderState.delivery_address.set()
+
+# Обработка адреса доставки и запись заказа в базу данных
+@dp.message_handler(state=OrderState.delivery_address)
+async def process_delivery_address(message: types.Message, state: FSMContext):
+    id_user = message.from_user.id
+    async with state.proxy() as data:
+        title = data['title']
+    delivery_address = message.text
+    order_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    cursor.execute('''INSERT INTO orders (id_user, title, address_destination, date_time_order) VALUES (?, ?, ?, ?) ''', (id_user, title, delivery_address, order_time))
+    conn.commit()
+    await message.reply(f"Ваш заказ: {title} будет доставлен по адресу: {delivery_address}.")
+    await state.finish()
+
+
 executor.start_polling(dp)
