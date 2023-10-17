@@ -1,63 +1,105 @@
-from aiogram import Bot, Dispatcher, types, executor
-from config import token
+from aiogram import Bot, Dispatcher, executor, types
 from logging import basicConfig, INFO
+from bs4 import BeautifulSoup
+from config import token
+import requests, os, lxml
+from aiogram.contrib.middlewares.logging import LoggingMiddleware
+from aiogram.dispatcher.filters.state import StatesGroup, State
+from aiogram.dispatcher import FSMContext
+from aiogram.contrib.fsm_storage.memory import MemoryStorage
 
+storage = MemoryStorage()
 bot = Bot(token=token)
-dp = Dispatcher(bot)
+dp = Dispatcher(bot, storage=storage)
+dp.middleware.setup(LoggingMiddleware())
 basicConfig(level=INFO)
+    
+url = 'https://www.nbkr.kg/'
+responce = requests.get(url=url)
 
-vision_keyboard = [
-    types.KeyboardButton("О нас"),
-    types.KeyboardButton("Объекты"),
-    types.KeyboardButton("Контакты"),
+soup = BeautifulSoup(responce.text, 'lxml')
+all_links = soup.find_all('td', class_="exrate")
+usd_txt = all_links[0]
+eur_txt = all_links[2]
+rub_txt = all_links[4]
+kzt_txt = all_links[6]
+usd_txt = usd_txt.text.replace(',', '.')
+usd_float = float(usd_txt)
+
+rub_txt = rub_txt.text.replace(',', '.')
+rub_float = float(rub_txt)
+
+eur_txt = eur_txt.text.replace(',', '.')
+eur_float = float(eur_txt)
+
+kzt_txt = kzt_txt.text.replace(',', '.')
+kzt_float = float(kzt_txt)
+# a = [usd_txt.text, rub_txt.text]
+# print(usd_txt.text, rub_txt.text)
+# print(a)
+
+btn = [
+    types.KeyboardButton('USD/KGS'),
+    types.KeyboardButton('RUB/KGS'),
+    types.KeyboardButton('EUR/KGS'),
+    types.KeyboardButton('KZT/KGS')
 ]
-objects_finished = [
-    types.KeyboardButton("Завершенные объекты"),
-    types.KeyboardButton("Строящиеся объекты"),
-    types.KeyboardButton("Назад")
-]
-objects_btn = types.ReplyKeyboardMarkup(resize_keyboard=True).add(*objects_finished)
-vision_button = types.ReplyKeyboardMarkup(resize_keyboard=True).add(*vision_keyboard)
-@dp.message_handler(commands="start")
+kb = types.ReplyKeyboardMarkup(resize_keyboard=True).add(*btn)
+@dp.message_handler(commands='start')
 async def start(message:types.Message):
-    await message.answer(f"Здравствуйте {message.from_user.full_name}\nДобро пожаловать в VisionGroup\nЧто вы хотели узнать?", reply_markup=vision_button)
-@dp.message_handler(text="start")
-async def start(message:types.Message):
-    await message.answer(f"Здравствуйте {message.from_user.full_name}\nДобро пожаловать в VisionGroup\nЧто вы хотели узнать?", reply_markup=vision_button)
-@dp.message_handler(text="О нас")
-async def about(message:types.Message):
-    await message.answer("""
-                                                    <b><i>СТРОИТЕЛЬНАЯ КОМПАНИЯ</i></b>
+    await message.answer(f'Привет {message.from_user.full_name}\nВыберите валюту для обмена!\nВся информация взята из сайта https://nbkr.kg', reply_markup=kb)
 
-                            <b>ОсОО «Визион Групп»</b>
-Мы - развивающаяся компания, которая предлагает своим клиентам широкий выбор квартир в объектах расположенных во всех наиболее привлекательных районах городов Ош и Джалал-Абад. \nУ нас максимально выгодные условия, гибкий (индивидуальный) подход при реализации жилой и коммерческой недвижимости. Мы занимаем лидирующие позиции по количеству объектов по югу Кыргызстана. \nНаша миссия: Мы обеспечиваем население удобным жильем для всей семьи, проявляя лояльность и индивидуальный подход и обеспечивая высокий уровень обслуживания.\n\n Мы обеспечиваем бизнес подходящим коммерческим помещением, используя современные решения и опыт профессионалов своего дела.
-                         """,parse_mode="HTML")
+class Usd(StatesGroup):
+    usd = State()
+    rub = State()
+    eur = State()
+    kzt = State()
+@dp.message_handler(text='USD/KGS')
+async def usd(message:types.Message) :
+    await message.answer(f'Вы быбрали USD/KGS\nСумма...')
+    await Usd.usd.set()
 
-@dp.message_handler(text="Объекты")
-async def objects(message:types.Message):
-    await message.answer("Выберите из меню объекты которые хотите увидеть!", reply_markup=objects_btn)
+@dp.message_handler(state=Usd.usd)
+async def usd_valuta(message:types.Message, state: FSMContext):
+    answer = float(message.text)
+    a = answer * usd_float
+    await message.answer(f'Вы получите {a} сом')
+    await state.finish()
 
-@dp.message_handler(text="Завершенные объекты")
-async def finished_objects(message:types.Message):
-    await message.answer_photo("https://sp-ao.shortpixel.ai/client/to_webp,q_glossy,ret_img,w_1260,h_708/https://vg-stroy.com/wp-content/uploads/2022/01/dji_0392-scaled-1.jpeg")
-    await message.answer("ЖК «Малина-Лайф»\n г.Ош, ул Монуева 19")
-    await message.answer_photo("https://sp-ao.shortpixel.ai/client/to_webp,q_glossy,ret_img,w_873,h_1280/https://vg-stroy.com/wp-content/uploads/2022/01/2022-02-09-14.22.41.jpg")
-    await message.answer("ЖК «Малина-Лайф»\n г.Ош, ул Монуева 19")
-@dp.message_handler(text="Строящиеся объекты")
-async def notfinished_objects(message:types.Message):
-    await message.answer_photo("https://sp-ao.shortpixel.ai/client/to_webp,q_glossy,ret_img,w_1260,h_708/https://vg-stroy.com/wp-content/uploads/2022/01/dji_0392-scaled-1.jpeg")
-    await message.answer("ЖК «Малина-Лайф»\n г.Ош, ул Монуева 19")
-    await message.answer_photo("https://sp-ao.shortpixel.ai/client/to_webp,q_glossy,ret_img,w_873,h_1280/https://vg-stroy.com/wp-content/uploads/2022/01/2022-02-09-14.22.41.jpg")
-    await message.answer("ЖК «Малина-Лайф»\n г.Ош, ул Монуева 19")
-@dp.message_handler(text="Назад")
-async def prev(message:types.Message):
-    await start(message)
+@dp.message_handler(text='RUB/KGS')
+async def usd(message:types.Message) :        
+    await message.answer(f'Вы быбрали RUB/KGS\nСумма...')
+    await Usd.rub.set()
 
-@dp.message_handler(text="Контакты")
-async def contacts(message:types.Message):
-    await message.answer("Телефонные номера: \n+996 709 620088\n+996 772 620088\n+996 550 620088")
+@dp.message_handler(state=Usd.rub)
+async def usd_valuta(message:types.Message, state: FSMContext):
+    answer = float(message.text)
+    a = answer * rub_float
+    await message.answer(f'Вы получите {a} сом')
+    await state.finish()
+    
+@dp.message_handler(text='EUR/KGS')
+async def usd(message:types.Message) :
+        await message.answer(f'Вы быбрали EUR/KGS\nСумма...')
+        await Usd.eur.set()
 
-@dp.message_handler()
-async def text(message:types.Message):
-    await message.answer("Я вас не понял введите команду /start")
+@dp.message_handler(state=Usd.eur)
+async def usd_valuta(message:types.Message, state: FSMContext):
+    answer = float(message.text)
+    a = answer * eur_float
+    await message.answer(f'Вы получите {a} сом')
+    await state.finish()
+
+@dp.message_handler(text='KZT/KGS')
+async def usd(message:types.Message) :
+    await message.answer(f'Вы быбрали KZT/KGS\nСумма...')
+    await Usd.kzt.set()
+
+@dp.message_handler(state=Usd.kzt)
+async def usd_valuta(message:types.Message, state: FSMContext):
+    answer = float(message.text)
+    a = answer * kzt_float
+    await message.answer(f'Вы получите {a} сом')
+    await state.finish()
+
 executor.start_polling(dp)
