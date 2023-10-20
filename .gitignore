@@ -1,3 +1,5 @@
-__pycache__,
-venv,
-config.py
+_pycache_/,
+venv/,
+config.py,
+bot.py,
+main.py,
