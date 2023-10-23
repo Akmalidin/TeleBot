@@ -1,63 +1,60 @@
-from aiogram import Bot, Dispatcher, types, executor
-from config import token
+from config import token, smtp_email, smtp_password
+from aiogram import Bot, Dispatcher, executor, types
 from logging import basicConfig, INFO
-
+from aiogram.dispatcher.filters.state import State, StatesGroup
+from aiogram.contrib.fsm_storage.memory import MemoryStorage
+import os, smtplib, random
+from aiogram.dispatcher import FSMContext
 bot = Bot(token=token)
-dp = Dispatcher(bot)
+storage = MemoryStorage()
+dp = Dispatcher(bot, storage=storage)
 basicConfig(level=INFO)
-
-vision_keyboard = [
-    types.KeyboardButton("О нас"),
-    types.KeyboardButton("Объекты"),
-    types.KeyboardButton("Контакты"),
+start_buttons = [
+    types.InlineKeyboardButton('Идентификация', callback_data='identification'),
 ]
-objects_finished = [
-    types.KeyboardButton("Завершенные объекты"),
-    types.KeyboardButton("Строящиеся объекты"),
-    types.KeyboardButton("Назад")
-]
-objects_btn = types.ReplyKeyboardMarkup(resize_keyboard=True).add(*objects_finished)
-vision_button = types.ReplyKeyboardMarkup(resize_keyboard=True).add(*vision_keyboard)
-@dp.message_handler(commands="start")
+start_btn = types.InlineKeyboardMarkup().add(*start_buttons)
+password = ''.join(random.choices('0123456789', k=6))
+def send_mail(title, message, to_email):
+    sender = smtp_email
+    password = smtp_password
+    
+    server = smtplib.SMTP("smtp.gmail.com", 587)
+    server.starttls()
+    
+    try:
+        server.login(sender, password)
+        server.sendmail(sender, to_email, title, message)
+        return '200 ok'
+    except Exception as error:
+        return f'Error: {error}'
+
+
+@dp.message_handler(commands='start')
 async def start(message:types.Message):
-    await message.answer(f"Здравствуйте {message.from_user.full_name}\nДобро пожаловать в VisionGroup\nЧто вы хотели узнать?", reply_markup=vision_button)
-@dp.message_handler(text="start")
-async def start(message:types.Message):
-    await message.answer(f"Здравствуйте {message.from_user.full_name}\nДобро пожаловать в VisionGroup\nЧто вы хотели узнать?", reply_markup=vision_button)
-@dp.message_handler(text="О нас")
-async def about(message:types.Message):
-    await message.answer("""
-                                                    <b><i>СТРОИТЕЛЬНАЯ КОМПАНИЯ</i></b>
+    await message.answer(f'Привет! {message.from_user.full_name}', reply_markup=start_btn)
 
-                            <b>ОсОО «Визион Групп»</b>
-Мы - развивающаяся компания, которая предлагает своим клиентам широкий выбор квартир в объектах расположенных во всех наиболее привлекательных районах городов Ош и Джалал-Абад. \nУ нас максимально выгодные условия, гибкий (индивидуальный) подход при реализации жилой и коммерческой недвижимости. Мы занимаем лидирующие позиции по количеству объектов по югу Кыргызстана. \nНаша миссия: Мы обеспечиваем население удобным жильем для всей семьи, проявляя лояльность и индивидуальный подход и обеспечивая высокий уровень обслуживания.\n\n Мы обеспечиваем бизнес подходящим коммерческим помещением, используя современные решения и опыт профессионалов своего дела.
-                         """,parse_mode="HTML")
+class IdentificationState(StatesGroup):
+    email = State()
 
-@dp.message_handler(text="Объекты")
-async def objects(message:types.Message):
-    await message.answer("Выберите из меню объекты которые хотите увидеть!", reply_markup=objects_btn)
+class Password(StatesGroup):
+    password = State()
+@dp.callback_query_handler(lambda call: call.data == 'identification')
+async def identification(message:types.Message):
+    await bot.send_message(message.from_user.id, 'Введите вашу почту')
+    await IdentificationState.email.set()
 
-@dp.message_handler(text="Завершенные объекты")
-async def finished_objects(message:types.Message):
-    await message.answer_photo("https://sp-ao.shortpixel.ai/client/to_webp,q_glossy,ret_img,w_1260,h_708/https://vg-stroy.com/wp-content/uploads/2022/01/dji_0392-scaled-1.jpeg")
-    await message.answer("ЖК «Малина-Лайф»\n г.Ош, ул Монуева 19")
-    await message.answer_photo("https://sp-ao.shortpixel.ai/client/to_webp,q_glossy,ret_img,w_873,h_1280/https://vg-stroy.com/wp-content/uploads/2022/01/2022-02-09-14.22.41.jpg")
-    await message.answer("ЖК «Малина-Лайф»\n г.Ош, ул Монуева 19")
-@dp.message_handler(text="Строящиеся объекты")
-async def notfinished_objects(message:types.Message):
-    await message.answer_photo("https://sp-ao.shortpixel.ai/client/to_webp,q_glossy,ret_img,w_1260,h_708/https://vg-stroy.com/wp-content/uploads/2022/01/dji_0392-scaled-1.jpeg")
-    await message.answer("ЖК «Малина-Лайф»\n г.Ош, ул Монуева 19")
-    await message.answer_photo("https://sp-ao.shortpixel.ai/client/to_webp,q_glossy,ret_img,w_873,h_1280/https://vg-stroy.com/wp-content/uploads/2022/01/2022-02-09-14.22.41.jpg")
-    await message.answer("ЖК «Малина-Лайф»\n г.Ош, ул Монуева 19")
-@dp.message_handler(text="Назад")
-async def prev(message:types.Message):
-    await start(message)
+@dp.message_handler(state=IdentificationState.email)
+async def email(message:types.Message, state: FSMContext):
+    send_mail(password, password, message.text)
+    await message.answer(f'Пароль отправлена на почту {message.text}\nВведите пароль для подтверждения')
+    await Password.password.set()
+    
+@dp.message_handler(state=Password.password)
+async def passwords(message:types.Message, state: FSMContext):
+    if message.text == password:
+        await message.answer('Идентификация прошла успешно\nМожете использовать нашего бота')
+    else:
+        await message.answer('Пароль неверен\nПовторите попытку используя команду /start')
+    await state.finish()
 
-@dp.message_handler(text="Контакты")
-async def contacts(message:types.Message):
-    await message.answer("Телефонные номера: \n+996 709 620088\n+996 772 620088\n+996 550 620088")
-
-@dp.message_handler()
-async def text(message:types.Message):
-    await message.answer("Я вас не понял введите команду /start")
-executor.start_polling(dp)
+executor.start_polling(dp, skip_updates=True)
